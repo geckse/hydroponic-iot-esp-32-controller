@@ -1,16 +1,42 @@
 /*
+  Config
+*/
+var ssid = '';
+var password = '';
+var backendHost = "192.168.178.20";
+var backendPort = 3000;
+
+/*
   Connect ESP 32 to Wifi
 */
-/*
-  var ssid = '';
-  var password = '';
-
-  var wifi = require('Wifi');
+var wifi = require('Wifi');
+function connectWifi(){
+  console.log('Connecting to Wifi...');
+  wifi.setHostname("esp-32-hydroponic-controller");
+  wifi.setConfig({
+    powersave: 'none'
+  }); // we don't want to close connection due to our websocket
   wifi.connect(ssid, {password: password}, function() {
-      console.log('Connected to Wifi.  IP address is:', wifi.getIP().ip);
-      wifi.save(); // save for auto connect
+    console.log('Connected to Wifi.  IP address is:', wifi.getIP().ip);
+    wifi.save(); // save for auto connect
   });
-*/
+}
+function reconnect(){
+  if(wifi.getStatus().station == "NO_AP_FOUND" || wifi.getStatus().station == "BEACON_TIMEOUT"){
+      console.log("Wifi Error:");
+      console.log(wifi.getStatus());
+      // reconnect wifi
+      connectWifi();
+  } else {
+    // try backend again
+    try {
+      openBackendSocket();
+    } catch(e){
+      console.log('WebSocket reconnection failed.');
+      setState("no connection");
+    }
+  }
+}
 
 /*
   Controller Setup
@@ -26,14 +52,12 @@ digitalWrite(pinStateLED, 0);
 /*
   Backend Setup
 */
-var backendHost = "192.168.178.20";
-var backendPort = 3000;
 var WebSocket = require("ws");
 var ws = null;
 var reconnectInterval = -1;
 
 function openBackendSocket(){
-  console.log('Opening WebSocket to backend ('+backendHost+':'+backendPort+')...');
+  console.log('Opening WebSocket to backend '+backendHost+':'+backendPort+' ...');
   setState("connecting");
   ws = new WebSocket(backendHost,{
       path: '/',
@@ -49,17 +73,14 @@ function openBackendSocket(){
     setState("ready");
   });
   ws.on('close', function() {
-    console.log('WebSocket closed. Try reconnect in 10 seconds.');
-    reconnectInterval = setInterval(function(){
-      try {
-        openBackendSocket();
-      } catch(e){
-        console.log('WebSocket reconnection failed.');
-      }
-    },10000);
+    console.log('WebSocket closed. Try reconnect every 10 seconds.');
+    setState("no connection");
+    reconnect();
+    reconnectInterval = setInterval(reconnect,10000);
   });
 
   ws.on('message', function(configstr) {
+    digitalWrite(pinStateLED, 0); // blink status led as feedback
     processConfig(JSON.parse(configstr));
   });
 }
@@ -103,28 +124,102 @@ function setState(newState){
 }
 
 /*
-  Water Control
+  Relay related components
 */
-function turnPumpsOn(){
+function turnWaterOn(){
   stateWater = 0;
   digitalWrite(pinRelayWater, stateWater);
   console.log('turned pumps on');
 }
-function turnPumpsOff(){
+function turnWaterOff(){
   stateWater = 1;
   digitalWrite(pinRelayWater, stateWater);
   console.log('turned pumps off');
 }
+function turnAirOn(){
+  stateAir = 0;
+  digitalWrite(pinRelayAir, stateAir);
+  console.log('turned air on');
+}
+function turnAirOff(){
+  stateAir = 1;
+  digitalWrite(pinRelayAir, stateAir);
+  console.log('turned air off');
+}
+function turnLampOn(ind){
+  if(ind == 1){
+    stateLamp1 = 0;  
+    digitalWrite(pinRelayLamp1, stateLamp1);
+  }
+  if(ind == 2){
+    stateLamp2 = 0;  
+    digitalWrite(pinRelayLamp2, stateLamp2);
+  }
+  if(ind == 3){
+    stateLamp3 = 0;  
+    digitalWrite(pinRelayLamp3, stateLamp3);
+  }
+  console.log('turned lamp'+ind+' on');
+}
+function turnLampOff(ind){
+  if(ind == 1){
+    stateLamp1 = 1;  
+    digitalWrite(pinRelayLamp1, stateLamp1);
+  }
+  if(ind == 2){
+    stateLamp2 = 1;  
+    digitalWrite(pinRelayLamp2, stateLamp2);
+  }
+  if(ind == 3){
+    stateLamp3 = 1;  
+    digitalWrite(pinRelayLamp3, stateLamp3);
+  }
+  console.log('turned lamp'+ind+' off');
+}
+
+
+
 /*
-  Config Control
+  Config Processing
 */
 function processConfig(configObj){
   config = configObj;
+  
+  // water
   if(config.power.waterPumps){
-    if(stateWater != 0) turnPumpsOn();
+    if(stateWater != 0) turnWaterOn();
   } else {
-    if(stateWater != 1) turnPumpsOff();  
+    if(stateWater != 1) turnWaterOff();  
   }
+  
+  // air
+  if(config.power.airPumps){
+    if(stateAir != 0) turnAirOn();
+  } else {
+    if(stateAir != 1) turnAirOff();  
+  }
+  
+  // lamp1
+  if(config.power.lamp1){
+    if(stateLamp1 != 0) turnLampOn(1);
+  } else {
+    if(stateLamp1 != 1) turnLampOff(1);  
+  }
+
+  // lamp2
+  if(config.power.lamp2){
+    if(stateLamp2 != 0) turnLampOn(2);
+  } else {
+    if(stateLamp2 != 1) turnLampOff(2);  
+  }
+
+  // lamp3
+  if(config.power.lamp3){
+    if(stateLamp3 != 0) turnLampOn(3);
+  } else {
+    if(stateLamp3 != 1) turnLampOff(3);  
+  }
+  
 }
 
 /*
@@ -133,31 +228,46 @@ function processConfig(configObj){
 
 console.log('Booting done.');
 
-// state led control
-setInterval(()=>{
-  
-  if(state == "no connection"){
-    runtime++;
-    if(runtime % 3){
-      digitalWrite(pinStateLED, 1);  
-    } else {
-      digitalWrite(pinStateLED, 0);
-    }
-  }
-  
-  if(state == "ready"){
-    digitalWrite(pinStateLED, 1);
-    runtime = 0;
-  }
-},500);
+// connect to wifi
+connectWifi();
 
-// try connection
+// short delay for wifi
 setTimeout(()=>{
+  
+  // try connection
   try {
     openBackendSocket();
   } catch(e){
     console.log('WebSocket connection failed.');
-    setState("no connection");
+    setState("no connection");  
+    reconnectInterval = setInterval(reconnect,10000);
   }
+  
+  // state led control
+  setInterval(()=>{
+    if(state == "no connection"){
+      runtime++;
+      if(runtime % 3){
+        digitalWrite(pinStateLED, 1);  
+      } else {
+        digitalWrite(pinStateLED, 0);
+      }
+    }
+    
+    // we are fine?
+    if(state == "ready"){
+      digitalWrite(pinStateLED, 1);
+      runtime = 0;
+    }
+    
+    // check if wifi error
+    if(state != "no connection" && wifi.getStatus().station == "NO_AP_FOUND"){
+      console.log("WIFI Error:");
+      console.log(wifi.getStatus());
+      setState("no connection");
+    }
+    
+  },500);
+  
 },500);
 
