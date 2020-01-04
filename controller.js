@@ -4,6 +4,8 @@
 var state = "booting";
 var pinStateLED = D23;
 var runtime = 0;
+var config = {};
+
 pinStateLED.mode('output');
 digitalWrite(pinStateLED, 0);
 
@@ -20,9 +22,10 @@ function openBackendSocket(){
   setState("connecting");
   ws = new WebSocket(backendHost,{
       path: '/',
-      port: 8080,
+      port: 3000,
       protocol : "echo-protocol",
-      protocolVersion: 13 }
+      protocolVersion: 13 
+    }
   );
 
   ws.on('open', function() {
@@ -41,8 +44,8 @@ function openBackendSocket(){
     },10000);
   });
 
-  ws.on('message', function(msg) {
-    console.log("MSG: " + msg);
+  ws.on('message', function(configstr) {
+    processConfig(JSON.parse(configstr));
   });
 }
 
@@ -51,10 +54,17 @@ function openBackendSocket(){
   Control Relays via pins to power other componentns
 */
 var pinRelayWater = D19; // Water Pump of reservoir
+var stateWater = 1;
+
 var pinRelayAir = D18; // Air Pump of reservoir
+var stateAir = 1;
+
 var pinRelayLamp1 = D5; // Light-Row 1
+var stateLamp1 = 1;
 var pinRelayLamp2 = D17; // Light-Row 2
+var stateLamp2 = 1;
 var pinRelayLamp3 = D16; // Light-Row 3
+var stateLamp3 = 1;
 
 pinRelayWater.mode('output');
 pinRelayAir.mode('output');
@@ -63,18 +73,17 @@ pinRelayLamp2.mode('output');
 pinRelayLamp3.mode('output');
 
 // initially turn them all off
-digitalWrite(pinRelayWater, 1);
-digitalWrite(pinRelayAir, 1);
-digitalWrite(pinRelayLamp1, 1);
-digitalWrite(pinRelayLamp2, 1);
-digitalWrite(pinRelayLamp3, 1);
+digitalWrite(pinRelayWater, stateWater);
+digitalWrite(pinRelayAir, stateAir);
+digitalWrite(pinRelayLamp1, stateLamp1);
+digitalWrite(pinRelayLamp2, stateLamp2);
+digitalWrite(pinRelayLamp3, stateLamp3);
 
 /*
   State Control
 */
 function setState(newState){
   state = newState;
-  console.log(state);
   return state;
 }
 
@@ -82,12 +91,25 @@ function setState(newState){
   Water Control
 */
 function turnPumpsOn(){
-  digitalWrite(pinRelayWater, 0);
+  stateWater = 0;
+  digitalWrite(pinRelayWater, stateWater);
   console.log('turned pumps on');
 }
 function turnPumpsOff(){
-  digitalWrite(pinRelayWater, 1);
+  stateWater = 1;
+  digitalWrite(pinRelayWater, stateWater);
   console.log('turned pumps off');
+}
+/*
+  Config Control
+*/
+function processConfig(configObj){
+  config = configObj;
+  if(config.power.waterPumps){
+    if(stateWater != 0) turnPumpsOn();
+  } else {
+    if(stateWater != 1) turnPumpsOff();  
+  }
 }
 
 /*
