@@ -1,4 +1,18 @@
 /*
+  Connect ESP 32 to Wifi
+*/
+/*
+  var ssid = '';
+  var password = '';
+
+  var wifi = require('Wifi');
+  wifi.connect(ssid, {password: password}, function() {
+      console.log('Connected to Wifi.  IP address is:', wifi.getIP().ip);
+      wifi.save(); // save for auto connect
+  });
+*/
+
+/*
   Controller Setup
 */
 var state = "booting";
@@ -13,16 +27,17 @@ digitalWrite(pinStateLED, 0);
   Backend Setup
 */
 var backendHost = "192.168.178.20";
+var backendPort = 3000;
 var WebSocket = require("ws");
 var ws = null;
 var reconnectInterval = -1;
 
 function openBackendSocket(){
-  console.log('Opening WebSocket to backend...');
+  console.log('Opening WebSocket to backend ('+backendHost+':'+backendPort+')...');
   setState("connecting");
   ws = new WebSocket(backendHost,{
       path: '/',
-      port: 3000,
+      port: backendPort,
       protocol : "echo-protocol",
       protocolVersion: 13 
     }
