@@ -17,7 +17,7 @@ function connectWifi(){
     powersave: 'none'
   }); // we don't want to close connection due to our websocket
   wifi.connect(ssid, {password: password}, function() {
-    console.log('Connected to Wifi.  IP address is:', wifi.getIP().ip);
+    console.log('Connected to Wifi. IP address is:', wifi.getIP().ip);
     wifi.save(); // save for auto connect
   });
 }
@@ -52,6 +52,7 @@ digitalWrite(pinStateLED, 0);
 /*
   Backend Setup
 */
+var http = require("http");
 var WebSocket = require("ws");
 var ws = null;
 var reconnectInterval = -1;
@@ -63,7 +64,7 @@ function openBackendSocket(){
       path: '/',
       port: backendPort,
       protocol : "echo-protocol",
-      protocolVersion: 13 
+      protocolVersion: 13
     }
   );
 
@@ -83,6 +84,19 @@ function openBackendSocket(){
     digitalWrite(pinStateLED, 0); // blink status led as feedback
     processConfig(JSON.parse(configstr));
   });
+}
+
+function sendData(){
+  console.log('Send Data to backend '+backendHost+':'+backendPort+' ...');
+
+  let sdata = JSON.stringify({
+    method: 'collect',
+    state: state,
+    temperature: temperature
+  });
+
+   ws.send(sdata);
+
 }
 
 /*
@@ -114,6 +128,14 @@ digitalWrite(pinRelayAir, stateAir);
 digitalWrite(pinRelayLamp1, stateLamp1);
 digitalWrite(pinRelayLamp2, stateLamp2);
 digitalWrite(pinRelayLamp3, stateLamp3);
+
+/*
+  Sensor Setup
+*/
+// Temperature via DS18B20
+var temperature = 0;
+var pinTempIn = new OneWire(D32);
+var tempSensor = require("DS18B20").connect(pinTempIn);
 
 /*
   State Control
@@ -148,30 +170,30 @@ function turnAirOff(){
 }
 function turnLampOn(ind){
   if(ind == 1){
-    stateLamp1 = 0;  
+    stateLamp1 = 0;
     digitalWrite(pinRelayLamp1, stateLamp1);
   }
   if(ind == 2){
-    stateLamp2 = 0;  
+    stateLamp2 = 0;
     digitalWrite(pinRelayLamp2, stateLamp2);
   }
   if(ind == 3){
-    stateLamp3 = 0;  
+    stateLamp3 = 0;
     digitalWrite(pinRelayLamp3, stateLamp3);
   }
   console.log('turned lamp'+ind+' on');
 }
 function turnLampOff(ind){
   if(ind == 1){
-    stateLamp1 = 1;  
+    stateLamp1 = 1;
     digitalWrite(pinRelayLamp1, stateLamp1);
   }
   if(ind == 2){
-    stateLamp2 = 1;  
+    stateLamp2 = 1;
     digitalWrite(pinRelayLamp2, stateLamp2);
   }
   if(ind == 3){
-    stateLamp3 = 1;  
+    stateLamp3 = 1;
     digitalWrite(pinRelayLamp3, stateLamp3);
   }
   console.log('turned lamp'+ind+' off');
@@ -184,42 +206,42 @@ function turnLampOff(ind){
 */
 function processConfig(configObj){
   config = configObj;
-  
+
   // water
   if(config.power.waterPumps){
     if(stateWater != 0) turnWaterOn();
   } else {
-    if(stateWater != 1) turnWaterOff();  
+    if(stateWater != 1) turnWaterOff();
   }
-  
+
   // air
   if(config.power.airPumps){
     if(stateAir != 0) turnAirOn();
   } else {
-    if(stateAir != 1) turnAirOff();  
+    if(stateAir != 1) turnAirOff();
   }
-  
+
   // lamp1
   if(config.power.lamp1){
     if(stateLamp1 != 0) turnLampOn(1);
   } else {
-    if(stateLamp1 != 1) turnLampOff(1);  
+    if(stateLamp1 != 1) turnLampOff(1);
   }
 
   // lamp2
   if(config.power.lamp2){
     if(stateLamp2 != 0) turnLampOn(2);
   } else {
-    if(stateLamp2 != 1) turnLampOff(2);  
+    if(stateLamp2 != 1) turnLampOff(2);
   }
 
   // lamp3
   if(config.power.lamp3){
     if(stateLamp3 != 0) turnLampOn(3);
   } else {
-    if(stateLamp3 != 1) turnLampOff(3);  
+    if(stateLamp3 != 1) turnLampOff(3);
   }
-  
+
 }
 
 /*
@@ -233,41 +255,51 @@ connectWifi();
 
 // short delay for wifi
 setTimeout(()=>{
-  
+
   // try connection
   try {
     openBackendSocket();
   } catch(e){
     console.log('WebSocket connection failed.');
-    setState("no connection");  
+    setState("no connection");
     reconnectInterval = setInterval(reconnect,10000);
   }
-  
+
   // state led control
   setInterval(()=>{
     if(state == "no connection"){
       runtime++;
       if(runtime % 3){
-        digitalWrite(pinStateLED, 1);  
+        digitalWrite(pinStateLED, 1);
       } else {
         digitalWrite(pinStateLED, 0);
       }
     }
-    
+
     // we are fine?
     if(state == "ready"){
       digitalWrite(pinStateLED, 1);
       runtime = 0;
     }
-    
+
     // check if wifi error
     if(state != "no connection" && wifi.getStatus().station == "NO_AP_FOUND"){
       console.log("WIFI Error:");
       console.log(wifi.getStatus());
       setState("no connection");
     }
-    
   },500);
-  
-},500);
 
+  // collect Data from Sensors
+  setInterval(() => {
+    tempSensor.getTemp((temp) => {
+      temperature = temp;
+    });
+  },(1000*10));
+
+  // send data to backend
+  setInterval(() => {
+    sendData();
+  },(1000*11));
+
+},500);
