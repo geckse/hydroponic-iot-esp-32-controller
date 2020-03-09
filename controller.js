@@ -132,10 +132,20 @@ digitalWrite(pinRelayLamp3, stateLamp3);
 /*
   Sensor Setup
 */
+
+var voltageComp = 3.3; // voltage compensation (3.3 ~ 5v)
+
 // Temperature via DS18B20
 var temperature = 0;
 var pinTempIn = new OneWire(D32);
 var tempSensor = require("DS18B20").connect(pinTempIn);
+
+// TDS Sensor
+var tds = 0;
+var pinECIn = D33;
+var tdsSamples = []; // temp sample Storage
+var tdsSampleTime = 100; // take sample every 40ms
+pinECIn.mode('input');
 
 /*
   State Control
@@ -245,6 +255,49 @@ function processConfig(configObj){
 }
 
 /*
+  Calculate TDS
+*/
+function takeTDSSample(){
+  let sensorReading = analogRead(pinECIn);
+  tdsSamples.push(sensorReading);
+}
+function calcTDS(){
+  let medVolt = median(tdsSamples);
+  // get median for more stable reading
+  let avgVolt = medVolt * voltageComp; /* why tho / 1024; */
+  // temperature compensation formula:
+  // fFinalResult(25^C) = fFinalResult(current)/(1.0+0.02*(fTP-25.0));
+  let compCoef = 1.0 + 0.02 *(temperature-25.0);
+  // temperature compensation
+  let compVolt = avgVolt/compCoef;
+
+  //convert voltage value to tds value
+  tds = (133.42*compVolt*compVolt*compVolt - 255.86*compVolt*compVolt + 857.39*compVolt)*0.5;
+  console.log('tds: '+tds+'ppm (Volt: '+avgVolt+' | Temp '+temperature+'°C | '+medVolt+')');
+
+  // clear buffer
+  tdsSamples = null;
+  tdsSamples = [];
+
+}
+
+
+function median(values){
+  if(values.length ===0) return 0;
+
+  values.sort(function(a,b){
+    return a-b;
+  });
+
+  var half = Math.floor(values.length / 2);
+
+  if (values.length % 2)
+    return values[half];
+
+  return (values[half - 1] + values[half]) / 2.0;
+}
+
+/*
   Initial Run
 */
 
@@ -290,16 +343,28 @@ setTimeout(()=>{
     }
   },500);
 
-  // collect Data from Sensors
-  setInterval(() => {
-    tempSensor.getTemp((temp) => {
-      temperature = temp;
-    });
-  },(1000*10));
-
   // send data to backend
   setInterval(() => {
     sendData();
-  },(1000*11));
+  },(1000*30));
 
-},500);
+},1000);
+
+// short delay for wifi
+setTimeout(() => {
+
+  // collect Data from Sensors
+  setInterval(() => {
+    takeTDSSample();
+  },tdsSampleTime);
+
+  // calculate tds value
+  setInterval(() => {
+    tempSensor.getTemp((temp) => {
+      if(temp == null) temp = 25; // fallback to 25°C, if sensor fails
+      temperature = temp;
+      calcTDS();
+    });
+  },tdsSampleTime*10);
+
+},2000);
