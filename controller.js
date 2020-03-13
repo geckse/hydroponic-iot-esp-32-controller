@@ -91,11 +91,11 @@ function sendData(){
   let sdata = JSON.stringify({
     method: 'collect',
     state: state,
-    temperature: temperature
+    temperature: temperature,
+    ph: ph,
+    tds: tds
   });
-
    ws.send(sdata);
-
 }
 
 /*
