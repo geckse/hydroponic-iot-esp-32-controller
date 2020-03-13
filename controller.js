@@ -5,7 +5,6 @@ var ssid = '';
 var password = '';
 var backendHost = "192.168.178.20";
 var backendPort = 3000;
-
 /*
   Connect ESP 32 to Wifi
 */
@@ -138,14 +137,24 @@ var voltageComp = 3.3; // voltage compensation (3.3 ~ 5v)
 // Temperature via DS18B20
 var temperature = 0;
 var pinTempIn = new OneWire(D32);
-var tempSensor = require("DS18B20").connect(pinTempIn);
+var tempLib = require('DS18B20');
+
+var tempSensor = -1;
 
 // TDS Sensor
 var tds = 0;
 var pinECIn = D33;
 var tdsSamples = []; // temp sample Storage
-var tdsSampleTime = 100; // take sample every 40ms
+var tdsSampleTime = 100; // take samples in ms
 pinECIn.mode('input');
+
+// PH Sensor
+var ph = 7;
+var pinPHIn = D35;
+var phSamples = []; // temp sample Storage
+var phSampleTime = 100; // take samples in ms
+pinPHIn.mode('input');
+
 
 /*
   State Control
@@ -278,7 +287,28 @@ function calcTDS(){
   // clear buffer
   tdsSamples = null;
   tdsSamples = [];
+}
 
+
+/*
+  Calculate PH
+*/
+function takePHSample(){
+  let sensorReading = analogRead(pinPHIn);
+  phSamples.push(sensorReading);
+}
+function calcPH(){
+  let medVolt = median(phSamples);
+  // get median for more stable reading
+  let avgVolt = medVolt * 5.0; /* / 1024; */
+  let deviationOffset = 0.00;
+  //convert voltage value to tds value
+  ph = 3.5*avgVolt+deviationOffset;
+  console.log('ph: '+ph+' (Volt: '+avgVolt+' | Temp '+temperature+'°C | '+medVolt+')');
+
+  // clear buffer
+  phSamples = null;
+  phSamples = [];
 }
 
 
@@ -304,8 +334,7 @@ function median(values){
 console.log('Booting done.');
 
 // connect to wifi
-connectWifi();
-
+setTimeout(()=>{ connectWifi(); },1000);
 // short delay for wifi
 setTimeout(()=>{
 
@@ -341,30 +370,50 @@ setTimeout(()=>{
       console.log(wifi.getStatus());
       setState("no connection");
     }
+
   },500);
 
-  // send data to backend
-  setInterval(() => {
-    sendData();
-  },(1000*30));
+},1500);
 
-},1000);
-
-// short delay for wifi
+// short delay for sensor setup
 setTimeout(() => {
 
-  // collect Data from Sensors
-  setInterval(() => {
-    takeTDSSample();
-  },tdsSampleTime);
+  // set sensors
+  try {
+    tempSensor = tempLib.connect(pinTempIn);
 
-  // calculate tds value
-  setInterval(() => {
-    tempSensor.getTemp((temp) => {
-      if(temp == null) temp = 25; // fallback to 25°C, if sensor fails
-      temperature = temp;
-      calcTDS();
-    });
-  },tdsSampleTime*10);
+    // collect Data from Sensors
+    setInterval(() => {
+      takeTDSSample();
+    },tdsSampleTime);
+
+    // calculate tds value
+    setInterval(() => {
+      tempSensor.getTemp((temp) => {
+        if(temp == null) temp = 25; // fallback to 25°C, if sensor fails
+        temperature = temp;
+        calcTDS();
+      });
+    },tdsSampleTime*10);
+
+    // collect Data from Sensors
+    setInterval(() => {
+      takePHSample();
+    },phSampleTime);
+
+    // calculate ph value
+    setInterval(() => {
+      calcPH();
+    },phSampleTime*10);
+
+    // send data to backend
+    setInterval(() => {
+      sendData();
+    },(1000*30));
+
+  } catch(e) {
+    console.log('Temperature Sensor fail: '+e);
+    console.log('--- NO DATAS WILL BE COLLECTED ---');
+  }
 
 },2000);
